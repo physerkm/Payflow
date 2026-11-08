@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Web SDK is used only to expose liveness/readiness endpoints for container orchestration. -->
+  <PropertyGroup>
+    <RootNamespace>PayFlow.Worker</RootNamespace>
+    <UserSecretsId>payflow-worker-9b41d0c2</UserSecretsId>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PayFlow.Application\PayFlow.Application.csproj" />
+    <ProjectReference Include="..\PayFlow.Infrastructure\PayFlow.Infrastructure.csproj" />
+    <ProjectReference Include="..\PayFlow.Contracts\PayFlow.Contracts.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="PayFlow.IntegrationTests" />
+  </ItemGroup>
+</Project>

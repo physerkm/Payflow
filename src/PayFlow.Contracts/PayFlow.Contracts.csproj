@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Versioned integration-event contracts. Must not reference Domain entities. -->
+  <PropertyGroup>
+    <RootNamespace>PayFlow.Contracts</RootNamespace>
+  </PropertyGroup>
+</Project>

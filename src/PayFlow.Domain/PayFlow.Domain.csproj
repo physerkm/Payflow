@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Domain has no dependency on any other PayFlow layer or framework (EF Core, ASP.NET Core, RabbitMQ). -->
+  <PropertyGroup>
+    <RootNamespace>PayFlow.Domain</RootNamespace>
+  </PropertyGroup>
+</Project>

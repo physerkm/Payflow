@@ -1,0 +1,88 @@
+# PayFlow API requests (VS Code REST Client / JetBrains / Visual Studio).
+# Run in order: register -> create tenant -> activate -> customer -> product -> order -> pay -> poll -> refund.
+@base = http://localhost:5080/api/v1
+
+### Register (sets the HttpOnly refresh cookie)
+# @name register
+POST {{base}}/auth/register
+Content-Type: application/json
+
+{ "email": "demo@acme.test", "password": "Str0ngPassw0rd", "displayName": "Demo Owner" }
+
+### Login
+# @name login
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{ "email": "demo@acme.test", "password": "Str0ngPassw0rd" }
+
+### Create a tenant (caller becomes Owner)
+# @name tenant
+POST {{base}}/tenants
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{ "name": "Acme Ltd", "slug": "acme-ltd", "defaultCurrency": "TRY", "timeZone": "Europe/Istanbul" }
+
+### Activate the tenant -> token bound to a verified membership
+# @name session
+POST {{base}}/auth/activate-tenant
+Authorization: Bearer {{login.response.body.accessToken}}
+Content-Type: application/json
+
+{ "tenantId": "{{tenant.response.body.id}}" }
+
+@token = {{session.response.body.accessToken}}
+
+### Customer
+# @name customer
+POST {{base}}/customers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Mehmet Yılmaz", "email": "mehmet@example.com" }
+
+### Product (price in minor units: 1500.75 TRY = 150075)
+# @name product
+POST {{base}}/products
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "sku": "PRO-PLAN", "name": "Pro Plan", "priceMinor": 150075, "currency": "TRY" }
+
+### Order (only ids and quantities; the server computes the total)
+# @name order
+POST {{base}}/orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "customerId": "{{customer.response.body.id}}", "items": [{ "productId": "{{product.response.body.id}}", "quantity": 2 }] }
+
+### Start payment -> 202 Accepted + paymentId (repeat with the same key: identical response, no second payment)
+# @name pay
+POST {{base}}/orders/{{order.response.body.id}}/payments
+Authorization: Bearer {{token}}
+Idempotency-Key: demo-payment-1
+Content-Type: application/json
+
+{ "paymentMethodToken": "pm_test_success" }
+
+### Poll payment status
+GET {{base}}/payments/{{pay.response.body.paymentId}}
+Authorization: Bearer {{token}}
+
+### Attempt history
+GET {{base}}/payments/{{pay.response.body.paymentId}}/attempts
+Authorization: Bearer {{token}}
+
+### Partial refund
+POST {{base}}/payments/{{pay.response.body.paymentId}}/refunds
+Authorization: Bearer {{token}}
+Idempotency-Key: demo-refund-1
+Content-Type: application/json
+
+{ "amountMinor": 50000, "reason": "Goodwill" }
+
+### Dashboard metrics
+GET {{base}}/reports/overview
+Authorization: Bearer {{token}}

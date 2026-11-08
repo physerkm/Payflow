@@ -1,0 +1,191 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  backend:
+    name: Backend build & tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Restore
+        run: dotnet restore PayFlow.sln
+      - name: Build (warnings are errors)
+        run: dotnet build PayFlow.sln -c Release --no-restore
+      - name: Vulnerable package check
+        run: |
+          dotnet list PayFlow.sln package --vulnerable --include-transitive | tee vulnerable.txt
+          if grep -q "has the following vulnerable packages" vulnerable.txt; then exit 1; fi
+      - name: Unit tests
+        run: dotnet test tests/PayFlow.UnitTests -c Release --no-build --logger trx --results-directory TestResults
+      - name: Architecture tests
+        run: dotnet test tests/PayFlow.ArchitectureTests -c Release --no-build --logger trx --results-directory TestResults
+      - name: Integration tests (PostgreSQL + RabbitMQ via Testcontainers)
+        run: dotnet test tests/PayFlow.IntegrationTests -c Release --no-build --logger trx --results-directory TestResults
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: TestResults/
+
+  frontend:
+    name: Frontend lint, tests & build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend/payflow-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/payflow-web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  secrets:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  images:
+    name: Container images
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - name: payflow-api
+            context: .
+            file: src/PayFlow.Api/Dockerfile
+          - name: payflow-worker
+            context: .
+            file: src/PayFlow.Worker/Dockerfile
+          - name: payflow-web
+            context: frontend/payflow-web
+            file: frontend/payflow-web/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/${{ matrix.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  e2e:
+    name: End-to-end (docker compose + Playwright)
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Ephemeral CI stack: a known platform admin lets the E2E suite cover the platform screen.
+      PLATFORM_ADMIN_EMAIL: e2e-platform-admin@payflow.test
+      PAYFLOW_E2E_PLATFORM_ADMIN: e2e-platform-admin@payflow.test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Start the stack
+        # Not using --wait: the one-shot migrator exits by design.
+        run: docker compose up -d --build
+      - name: Build E2E tests and install Chromium
+        run: |
+          dotnet build tests/PayFlow.EndToEndTests -c Release
+          pwsh tests/PayFlow.EndToEndTests/bin/Release/net10.0/playwright.ps1 install --with-deps chromium
+      - name: Smoke test (API ready, web up, worker healthy)
+        run: |
+          curl --fail --retry 30 --retry-delay 5 --retry-all-errors http://localhost:5080/health/ready
+          curl --fail --retry 30 --retry-delay 5 --retry-all-errors http://localhost:8080/
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q worker)")" = "healthy" ] && break
+            sleep 5
+          done
+          docker compose ps
+      - name: Browser journey
+        env:
+          PAYFLOW_E2E_BASE_URL: http://localhost:8080
+        run: dotnet test tests/PayFlow.EndToEndTests -c Release --no-build --logger trx --results-directory TestResults
+      - name: Compose logs
+        if: failure()
+        run: docker compose logs --no-color > compose.log
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: |
+            TestResults/
+            compose.log
+            tests/PayFlow.EndToEndTests/bin/Release/net10.0/e2e-artifacts/
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: [images, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_HOST != ''
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Roll out (migrator first, then API/Worker/Web)
+        env:
+          STAGING_HOST: ${{ vars.STAGING_HOST }}
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # Placeholder for the target platform (VM with docker compose, Azure Container Apps, ECS, ...).
+          # The sequence is what matters: backward-compatible migration -> new images -> smoke test -> keep/rollback.
+          echo "Deploying $IMAGE_TAG to $STAGING_HOST - see docs/runbooks/deploy-and-rollback.md"
+      - name: Staging smoke test
+        run: curl --fail --retry 10 --retry-delay 5 --retry-all-errors "https://${{ vars.STAGING_HOST }}/health/ready"

@@ -1,0 +1,142 @@
+# PayFlow local environment.
+#   docker compose up --build                          -> web http://localhost:8080, API http://localhost:5080/scalar
+#   docker compose --profile observability up --build  -> + Grafana http://localhost:3000 (traces, metrics, logs)
+# Copy .env.example to .env to override secrets. The defaults below are for local development only.
+name: payflow
+
+x-dotnet-env: &dotnet-env
+  ASPNETCORE_ENVIRONMENT: Production
+  # Business queries run as the least-privileged role with PostgreSQL Row-Level Security enforced.
+  ConnectionStrings__PayFlow: Host=postgres;Port=5432;Database=payflow;Username=payflow_app;Password=${PAYFLOW_APP_PASSWORD:-payflow_app}
+  # Cross-tenant system lookups (webhook routing, reconciliation scans, retention) use the owner role.
+  ConnectionStrings__PayFlowSystem: Host=postgres;Port=5432;Database=payflow;Username=payflow;Password=${POSTGRES_PASSWORD:-payflow}
+  Database__EnableRowLevelSecurity: "true"
+  Auth__Jwt__SigningKey: ${JWT_SIGNING_KEY:-local-dev-signing-key-change-me-0123456789abcdef}
+  MockProvider__WebhookSecret: ${MOCK_WEBHOOK_SECRET:-whsec_local_dev_mock_provider}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: payflow
+      POSTGRES_USER: payflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-payflow}
+      PAYFLOW_APP_PASSWORD: ${PAYFLOW_APP_PASSWORD:-payflow_app}
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payflow -d payflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    ports: ["5672:5672", "15672:15672", "15692:15692"]
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  # One-shot job: applies EF Core migrations with the owner role, then exits. API/Worker never need DDL rights.
+  migrator:
+    build: { context: ., dockerfile: src/PayFlow.Api/Dockerfile }
+    image: payflow-api:local
+    command: ["--migrate"]
+    environment:
+      ConnectionStrings__PayFlowMigrations: Host=postgres;Port=5432;Database=payflow;Username=payflow;Password=${POSTGRES_PASSWORD:-payflow}
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+    healthcheck:
+      disable: true
+
+  api:
+    build: { context: ., dockerfile: src/PayFlow.Api/Dockerfile }
+    image: payflow-api:local
+    environment:
+      <<: *dotnet-env
+      OpenApi__Enabled: "true"
+      ReverseProxy__Enabled: "true"
+      # Local http://localhost access; behind TLS in staging/production keep the default (true).
+      Auth__RefreshToken__SecureCookie: "false"
+      Assistant__ApiKey: ${ANTHROPIC_API_KEY:-}
+      # Platform staff by email. Register the account first: there is no email verification yet.
+      Platform__Admins__0: ${PLATFORM_ADMIN_EMAIL:-}
+    ports: ["5080:8080"]
+    depends_on:
+      migrator: { condition: service_completed_successfully }
+
+  worker:
+    build: { context: ., dockerfile: src/PayFlow.Worker/Dockerfile }
+    image: payflow-worker:local
+    environment:
+      <<: *dotnet-env
+      Messaging__Transport: RabbitMq
+      Messaging__RabbitMq__Host: rabbitmq
+      Messaging__RabbitMq__UserName: ${RABBITMQ_USER:-guest}
+      Messaging__RabbitMq__Password: ${RABBITMQ_PASSWORD:-guest}
+      MockProvider__WebhookTargetUrl: http://api:8080/api/v1/webhooks/payments/mock
+    depends_on:
+      migrator: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+
+  web:
+    build: { context: ./frontend/payflow-web }
+    image: payflow-web:local
+    ports: ["8080:8080"]
+    depends_on: [api]
+
+  # ---- Observability (docker compose --profile observability up) ----
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.111.0
+    profiles: [observability]
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./infrastructure/monitoring/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports: ["4317:4317", "4318:4318"]
+    depends_on: [tempo, loki]
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    profiles: [observability]
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./infrastructure/monitoring/tempo.yaml:/etc/tempo.yaml:ro
+
+  loki:
+    image: grafana/loki:3.2.0
+    profiles: [observability]
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    profiles: [observability]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--web.enable-remote-write-receiver"]
+    volumes:
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    profiles: [observability]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - ./infrastructure/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus, tempo, loki]
+
+volumes:
+  pgdata:
+  rabbitmqdata:

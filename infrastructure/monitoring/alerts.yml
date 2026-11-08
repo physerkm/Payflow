@@ -1,0 +1,38 @@
+groups:
+  - name: payflow
+    rules:
+      - alert: OutboxBacklogGrowing
+        expr: max(payflow_outbox_oldest_pending_age_seconds) > 120
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: Outbox messages are waiting for more than 2 minutes
+          runbook: docs/runbooks/outbox-backlog.md
+      - alert: DeadLetteredMessages
+        expr: increase(payflow_messages_dead_lettered_total[15m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: Messages were moved to a dead-letter queue
+          runbook: docs/runbooks/dead-letter-queue.md
+      - alert: ProviderTimeoutsAccumulating
+        expr: sum(increase(payflow_payments_provider_outcomes_total{outcome="Timeout"}[15m])) > 10
+        labels: { severity: warning }
+        annotations:
+          summary: Many provider timeouts - unknown payments are accumulating
+          runbook: docs/runbooks/unknown-payments.md
+      - alert: ApiHighErrorRate
+        expr: |
+          sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_server_request_duration_seconds_count[5m])), 1) > 0.02
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: More than 2% of API requests fail with 5xx
+          runbook: docs/runbooks/incident-response.md
+      - alert: ApiLatencyP95High
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket[5m]))) > 0.5
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: API p95 latency above 500 ms (spec NFR baseline)

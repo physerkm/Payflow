@@ -1,0 +1,98 @@
+{
+  "uid": "payflow-overview",
+  "title": "PayFlow - Operations",
+  "description": "API health, payment outcomes, outbox/inbox reliability and worker processing (spec §14.4).",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["payflow"],
+  "panels": [
+    {
+      "id": 1, "type": "timeseries", "title": "API requests / s (by status class)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{job=\"payflow-otel\"}[1m]))", "legendFormat": "{{http_response_status_code}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "id": 2, "type": "timeseries", "title": "API latency p95 / p99",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket[5m])))", "legendFormat": "p95" },
+        { "refId": "B", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket[5m])))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 3, "type": "timeseries", "title": "Payment provider outcomes / min",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (outcome) (increase(payflow_payments_provider_outcomes_total[1m]))", "legendFormat": "{{outcome}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" } } }, "overrides": [] }
+    },
+    {
+      "id": 4, "type": "timeseries", "title": "Outbox backlog",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "max(payflow_outbox_pending)", "legendFormat": "pending messages" },
+        { "refId": "B", "expr": "max(payflow_outbox_oldest_pending_age_seconds)", "legendFormat": "oldest pending (s)" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Worker processing p95 by event type",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le, event_type) (rate(payflow_messages_processing_duration_milliseconds_bucket[5m])))", "legendFormat": "{{event_type}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Retries, dead letters, publish failures",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(increase(payflow_messages_retries_total[5m])) or vector(0)", "legendFormat": "transport retries" },
+        { "refId": "B", "expr": "sum(increase(payflow_messages_dead_lettered_total[5m])) or vector(0)", "legendFormat": "dead-lettered" },
+        { "refId": "C", "expr": "sum(increase(payflow_outbox_publish_failures_total[5m])) or vector(0)", "legendFormat": "outbox publish failures" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "RabbitMQ ready / unacked messages",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rabbitmq_queue_messages_ready)", "legendFormat": "ready" },
+        { "refId": "B", "expr": "sum(rabbitmq_queue_messages_unacked)", "legendFormat": "unacked" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Reconciliation results / 5 min",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (result) (increase(payflow_payments_reconciliations_total[5m]))", "legendFormat": "{{result}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 9, "type": "timeseries", "title": "AI assistant tokens / 5 min",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (direction) (increase(payflow_assistant_tokens_total[5m]))", "legendFormat": "{{direction}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    }
+  ]
+}
