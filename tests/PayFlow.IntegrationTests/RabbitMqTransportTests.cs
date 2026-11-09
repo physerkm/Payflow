@@ -73,6 +73,38 @@ public sealed class RabbitMqTransportTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Transient_failure_waits_in_the_retry_queue_and_is_redelivered()
+    {
+        Assert.SkipWhen(_unavailable is not null, _unavailable ?? string.Empty);
+        var deliveries = new ConcurrentQueue<DateTimeOffset>();
+        var (bus, consumer, _, connections) = Create(_ =>
+        {
+            deliveries.Enqueue(DateTimeOffset.UtcNow);
+            return deliveries.Count == 1 ? throw new InvalidOperationException("transient provider glitch") : Task.CompletedTask;
+        });
+        await consumer.StartAsync(TestContext.Current.CancellationToken);
+
+        var envelope = MessageEnvelope.Create(Guid.NewGuid(), DateTimeOffset.UtcNow, Guid.NewGuid(), null, new RefundRequestedV1(Guid.NewGuid(), Guid.NewGuid()));
+        await bus.PublishAsync(new OutgoingMessage(envelope.MessageId, envelope.EventType, envelope.Serialize(), envelope.TenantId, null, null), TestContext.Current.CancellationToken);
+
+        await WaitAsync(() => deliveries.Count >= 2);
+        var times = deliveries.ToArray();
+
+        // The first retry level is a TTL queue: the broker holds the message for its delay, then routes it back.
+        (times[1] - times[0]).ShouldBeGreaterThan(Topology.RetryDelays[0] - TimeSpan.FromSeconds(1));
+
+        var connection = await connections.GetConnectionAsync(TestContext.Current.CancellationToken);
+        await using var channel = await connection.CreateChannelAsync(cancellationToken: TestContext.Current.CancellationToken);
+        await Task.Delay(500, TestContext.Current.CancellationToken);
+        (await channel.MessageCountAsync(Topology.RetryQueue(Topology.RefundsQueue, 1), TestContext.Current.CancellationToken)).ShouldBe(0u);
+        (await channel.MessageCountAsync(Topology.DeadLetterQueue(Topology.RefundsQueue), TestContext.Current.CancellationToken)).ShouldBe(0u);
+        deliveries.Count.ShouldBe(2);
+
+        await consumer.StopAsync(CancellationToken.None);
+        await connections.DisposeAsync();
+    }
+
+    [Fact]
     public async Task Unroutable_messages_fail_the_publish_instead_of_being_lost()
     {
         Assert.SkipWhen(_unavailable is not null, _unavailable ?? string.Empty);
