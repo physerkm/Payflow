@@ -41,9 +41,15 @@ public static class PayFlowMetrics
 
     private static long _outboxPending;
     private static double _outboxOldestPendingSeconds;
+    private static IReadOnlyDictionary<string, long> _unresolvedAttempts = new Dictionary<string, long>();
 
     static PayFlowMetrics()
     {
+        Meter.CreateObservableGauge(
+            "payflow.payments.unresolved_attempts",
+            () => Volatile.Read(ref _unresolvedAttempts)
+                .Select(p => new Measurement<long>(p.Value, new KeyValuePair<string, object?>("status", p.Key))),
+            description: "Provider attempts whose outcome is still open (reconciliation backlog)");
         Meter.CreateObservableGauge("payflow.outbox.pending", () => Volatile.Read(ref _outboxPending), description: "Pending outbox messages");
         Meter.CreateObservableGauge(
             "payflow.outbox.oldest_pending_age",
@@ -57,6 +63,9 @@ public static class PayFlowMetrics
         Volatile.Write(ref _outboxPending, pending);
         Volatile.Write(ref _outboxOldestPendingSeconds, oldestAgeSeconds);
     }
+
+    public static void SetUnresolvedAttempts(IReadOnlyDictionary<string, long> countsByStatus) =>
+        Volatile.Write(ref _unresolvedAttempts, countsByStatus);
 
     public static void RecordMessageProcessed(string eventType, string result, TimeSpan duration) =>
         MessageProcessingDuration.Record(

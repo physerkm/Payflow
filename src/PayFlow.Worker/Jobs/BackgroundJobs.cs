@@ -101,6 +101,10 @@ internal sealed class PaymentReconciliationJob(
                 logger.LogWarning(ex, "Reconciliation of attempt {AttemptId} failed; will retry next cycle", candidate.AttemptId);
             }
         }
+
+        // Backlog gauge for dashboards and alerts: open outcomes left after this cycle.
+        var unresolved = await systemQueries.CountUnresolvedAttemptsAsync(cancellationToken);
+        PayFlowMetrics.SetUnresolvedAttempts(unresolved.ToDictionary(p => p.Key.ToString(), p => p.Value));
     }
 }
 

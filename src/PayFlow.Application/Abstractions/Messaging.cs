@@ -35,4 +35,7 @@ public interface ISystemPaymentQueries
         DateTimeOffset processingBefore,
         int limit,
         CancellationToken cancellationToken);
+
+    /// <summary>Attempts whose outcome is still open (Processing, ProviderPending, Unknown), counted per status.</summary>
+    Task<IReadOnlyDictionary<PaymentAttemptStatus, long>> CountUnresolvedAttemptsAsync(CancellationToken cancellationToken);
 }

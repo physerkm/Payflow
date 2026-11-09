@@ -36,3 +36,40 @@ groups:
         labels: { severity: warning }
         annotations:
           summary: API p95 latency above 500 ms (spec NFR baseline)
+      - alert: DeadLetterQueueNotEmpty
+        expr: max by (queue) (rabbitmq_detailed_queue_messages{queue=~".+[.]dlq"}) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Dead-letter queue {{ $labels.queue }} holds messages that need inspection"
+          runbook: docs/runbooks/dead-letter-queue.md
+      - alert: UnknownPaymentsBacklog
+        expr: sum(payflow_payments_unresolved_attempts{status="Unknown"}) > 10
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: More than 10 payment attempts have an unknown outcome - reconciliation is falling behind
+          runbook: docs/runbooks/unknown-payments.md
+      - alert: DbConnectionPoolSaturated
+        expr: |
+          sum by (service_name) (db_client_connection_count{db_client_connection_state="used"})
+            / max by (service_name) (db_client_connection_max) > 0.9
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $labels.service_name }} uses more than 90% of its database connection pool"
+          runbook: docs/runbooks/database.md
+      - alert: DatabaseLockWaits
+        expr: max(pg_lock_waits_sessions) > 0
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: Sessions have been waiting for row or table locks for over 2 minutes
+          runbook: docs/runbooks/database.md
+      - alert: LongRunningTransaction
+        expr: max(pg_stat_activity_max_tx_duration{datname="payflow"}) > 60
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: A database transaction has been open for more than a minute
+          runbook: docs/runbooks/database.md

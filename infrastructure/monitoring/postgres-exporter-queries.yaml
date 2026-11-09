@@ -1,0 +1,41 @@
+# Custom postgres-exporter queries (spec §14.4: lock waits and slow queries).
+# Statement text comes from pg_stat_statements, which replaces constants with $n - no data values leak.
+
+pg_lock_waits:
+  query: |
+    SELECT count(*)::float AS sessions
+    FROM pg_stat_activity
+    WHERE wait_event_type = 'Lock' AND datname = current_database()
+  metrics:
+    - sessions:
+        usage: "GAUGE"
+        description: "Sessions currently waiting for a lock"
+
+pg_slow_queries:
+  query: |
+    SELECT s.queryid::text AS queryid,
+           left(regexp_replace(s.query, '\s+', ' ', 'g'), 120) AS query,
+           s.calls::float AS calls,
+           (s.mean_exec_time / 1000)::float AS mean_seconds,
+           (s.total_exec_time / 1000)::float AS total_seconds
+    FROM pg_stat_statements s
+    JOIN pg_database d ON d.oid = s.dbid
+    WHERE d.datname = current_database() AND s.calls > 0
+    ORDER BY s.total_exec_time DESC
+    LIMIT 10
+  metrics:
+    - queryid:
+        usage: "LABEL"
+        description: "pg_stat_statements query id"
+    - query:
+        usage: "LABEL"
+        description: "Normalized statement text (truncated)"
+    - calls:
+        usage: "COUNTER"
+        description: "Times the statement was executed"
+    - mean_seconds:
+        usage: "GAUGE"
+        description: "Mean execution time"
+    - total_seconds:
+        usage: "COUNTER"
+        description: "Total execution time"

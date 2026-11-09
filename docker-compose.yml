@@ -14,15 +14,20 @@ x-dotnet-env: &dotnet-env
   Auth__Jwt__SigningKey: ${JWT_SIGNING_KEY:-local-dev-signing-key-change-me-0123456789abcdef}
   MockProvider__WebhookSecret: ${MOCK_WEBHOOK_SECRET:-whsec_local_dev_mock_provider}
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  # Load tests measure capacity, so they switch the per-user rate limits off (RATE_LIMITING_ENABLED=false).
+  RateLimiting__Enabled: ${RATE_LIMITING_ENABLED:-true}
 
 services:
   postgres:
     image: postgres:17-alpine
+    # pg_stat_statements feeds the slow-query panel; lock waits are logged as well.
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "track_io_timing=on", "-c", "log_lock_waits=on"]
     environment:
       POSTGRES_DB: payflow
       POSTGRES_USER: payflow
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-payflow}
       PAYFLOW_APP_PASSWORD: ${PAYFLOW_APP_PASSWORD:-payflow_app}
+      PAYFLOW_MONITOR_PASSWORD: ${PAYFLOW_MONITOR_PASSWORD:-payflow_monitor}
     ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -114,6 +119,19 @@ services:
     image: grafana/loki:3.2.0
     profiles: [observability]
     command: ["-config.file=/etc/loki/local-config.yaml"]
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+    profiles: [observability]
+    command: ["--extend.query-path=/etc/postgres-exporter/queries.yaml"]
+    environment:
+      DATA_SOURCE_URI: postgres:5432/payflow?sslmode=disable
+      DATA_SOURCE_USER: payflow_monitor
+      DATA_SOURCE_PASS: ${PAYFLOW_MONITOR_PASSWORD:-payflow_monitor}
+    volumes:
+      - ./infrastructure/monitoring/postgres-exporter-queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+    depends_on:
+      postgres: { condition: service_healthy }
 
   prometheus:
     image: prom/prometheus:v2.55.0

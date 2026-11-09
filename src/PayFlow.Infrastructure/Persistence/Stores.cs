@@ -159,6 +159,29 @@ internal sealed class SystemPaymentQueries(SystemDataSource system) : ISystemPay
         return result;
     }
 
+    public async Task<IReadOnlyDictionary<PaymentAttemptStatus, long>> CountUnresolvedAttemptsAsync(CancellationToken cancellationToken)
+    {
+        await using var command = system.DataSource.CreateCommand(
+            """
+            SELECT status, count(*) FROM payment_attempts
+            WHERE status IN ('Processing', 'ProviderPending', 'Unknown')
+            GROUP BY status
+            """);
+        var counts = new Dictionary<PaymentAttemptStatus, long>
+        {
+            [PaymentAttemptStatus.Processing] = 0,
+            [PaymentAttemptStatus.ProviderPending] = 0,
+            [PaymentAttemptStatus.Unknown] = 0,
+        };
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            counts[Enum.Parse<PaymentAttemptStatus>(reader.GetString(0))] = reader.GetInt64(1);
+        }
+
+        return counts;
+    }
+
     private static AttemptLocator ReadLocator(NpgsqlDataReader reader) => new(
         reader.GetGuid(0),
         reader.GetGuid(1),

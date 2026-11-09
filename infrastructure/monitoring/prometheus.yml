@@ -9,5 +9,11 @@ scrape_configs:
     static_configs: [{ targets: ["otel-collector:8889"] }]
   - job_name: rabbitmq            # built-in rabbitmq_prometheus plugin (queue depth, unacked, DLQ size)
     static_configs: [{ targets: ["rabbitmq:15692"] }]
+  - job_name: rabbitmq-queues     # per-queue depth (needed for dead-letter queue size)
+    metrics_path: /metrics/detailed
+    params: { family: [queue_coarse_metrics] }
+    static_configs: [{ targets: ["rabbitmq:15692"] }]
+  - job_name: postgres            # postgres-exporter: sessions, locks, slow queries (pg_stat_statements)
+    static_configs: [{ targets: ["postgres-exporter:9187"] }]
   - job_name: prometheus
     static_configs: [{ targets: ["localhost:9090"] }]
