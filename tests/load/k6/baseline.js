@@ -1,5 +1,8 @@
 // k6 baseline: read-heavy traffic plus payment initiation, against a running stack.
 //   k6 run -e BASE_URL=http://localhost:5080 tests/load/k6/baseline.js
+// or, without installing k6, from inside the compose network (see docs/performance/baseline.md):
+//   docker run --rm --network payflow_default -v ./tests/load:/load grafana/k6:1.0.0 run -e BASE_URL=http://api:8080 /load/k6/baseline.js
+// Start the API with RATE_LIMITING_ENABLED=false first: one test user far exceeds the per-user limit by design.
 // Reports p95/p99 latency and error rate. The thresholds mirror the spec's NFR baseline (simple reads p95 < 500 ms);
 // they are engineering targets for a local/staging baseline, not an SLA.
 import http from 'k6/http';
@@ -12,6 +15,7 @@ const accepted = new Rate('payment_accepted');
 const paymentLatency = new Trend('payment_initiation_ms', true);
 
 export const options = {
+  summaryTrendStats: ["avg", "med", "p(90)", "p(95)", "p(99)", "max"],
   scenarios: {
     readers: { executor: 'constant-vus', vus: 20, duration: '1m', exec: 'readers' },
     payers: { executor: 'constant-arrival-rate', rate: 5, timeUnit: '1s', duration: '1m', preAllocatedVUs: 10, exec: 'payers' },
