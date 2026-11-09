@@ -5,6 +5,7 @@ using PayFlow.Application.Audit;
 using PayFlow.Application.Orders;
 using PayFlow.Domain.Common;
 using PayFlow.Domain.Payments;
+using PayFlow.Domain.Refunds;
 
 namespace PayFlow.Application.Payments;
 
@@ -236,5 +237,64 @@ internal sealed class OrderPaymentsPort(IPaymentsDb db, TimeProvider clock) : IO
         {
             payment.Cancel(clock.GetUtcNow());
         }
+    }
+
+    public async Task<IReadOnlyList<OrderHistoryEntry>> GetPaymentHistoryAsync(Guid orderId, CancellationToken cancellationToken)
+    {
+        var payments = await db.Payments.AsNoTracking()
+            .Include(p => p.Attempts)
+            .Where(p => p.OrderId == orderId)
+            .ToListAsync(cancellationToken);
+        var paymentIds = payments.Select(p => p.Id).ToList();
+        var refunds = await db.Refunds.AsNoTracking()
+            .Where(r => paymentIds.Contains(r.PaymentId))
+            .ToListAsync(cancellationToken);
+
+        var entries = new List<OrderHistoryEntry>();
+        foreach (var payment in payments)
+        {
+            entries.Add(new(payment.CreatedAt, OrderHistoryEvents.PaymentInitiated, AmountMinor: payment.AmountMinor, Currency: payment.Currency, PaymentId: payment.Id));
+
+            // One entry per provider attempt, at its outcome time (or when it started / is scheduled to start).
+            foreach (var attempt in payment.Attempts)
+            {
+                entries.Add(new(
+                    attempt.CompletedAt ?? attempt.StartedAt ?? attempt.ScheduledAt,
+                    OrderHistoryEvents.PaymentAttempt,
+                    attempt.Status.ToString(),
+                    Code: attempt.FailureCode,
+                    PaymentId: payment.Id,
+                    AttemptNumber: attempt.AttemptNumber,
+                    Trigger: attempt.Trigger.ToString()));
+            }
+
+            if (payment.SucceededAt is { } succeededAt)
+            {
+                entries.Add(new(succeededAt, OrderHistoryEvents.PaymentSucceeded, AmountMinor: payment.AmountMinor, Currency: payment.Currency, PaymentId: payment.Id));
+            }
+
+            if (payment.FailedAt is { } failedAt)
+            {
+                entries.Add(new(failedAt, OrderHistoryEvents.PaymentFailed, Code: payment.FailureCode, PaymentId: payment.Id));
+            }
+
+            if (payment.Status == PaymentStatus.Cancelled)
+            {
+                // Cancelled is terminal, so the last update is the cancellation.
+                entries.Add(new(payment.UpdatedAt, OrderHistoryEvents.PaymentCancelled, PaymentId: payment.Id));
+            }
+        }
+
+        foreach (var refund in refunds)
+        {
+            entries.Add(new(refund.CreatedAt, OrderHistoryEvents.RefundRequested, AmountMinor: refund.AmountMinor, Currency: refund.Currency, PaymentId: refund.PaymentId, Note: refund.Reason));
+            if (refund.CompletedAt is { } completedAt)
+            {
+                var type = refund.Status == RefundStatus.Succeeded ? OrderHistoryEvents.RefundSucceeded : OrderHistoryEvents.RefundFailed;
+                entries.Add(new(completedAt, type, AmountMinor: refund.AmountMinor, Currency: refund.Currency, Code: refund.FailureCode, PaymentId: refund.PaymentId));
+            }
+        }
+
+        return entries;
     }
 }

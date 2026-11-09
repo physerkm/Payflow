@@ -103,7 +103,10 @@ public static class PostgresServer
 }
 
 /// <summary>API host + Worker components (outbox publisher, in-memory transport, consumers, reconciliation) in one process.</summary>
-public sealed class PayFlowApiFactory(string connectionString, IReadOnlyDictionary<string, string?>? overrides = null) : WebApplicationFactory<ApiAssemblyMarker>
+public sealed class PayFlowApiFactory(
+    string connectionString,
+    IReadOnlyDictionary<string, string?>? overrides = null,
+    Action<IServiceCollection>? configureServices = null) : WebApplicationFactory<ApiAssemblyMarker>
 {
     public const string WebhookSecret = "whsec_integration_tests";
 
@@ -154,7 +157,10 @@ public sealed class PayFlowApiFactory(string connectionString, IReadOnlyDictiona
         builder.UseEnvironment("Testing");
         builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(Settings));
         builder.ConfigureTestServices(services =>
-            services.AddPayFlowWorker(new ConfigurationBuilder().AddInMemoryCollection(Settings).Build(), transportOverride: "InMemory"));
+        {
+            services.AddPayFlowWorker(new ConfigurationBuilder().AddInMemoryCollection(Settings).Build(), transportOverride: "InMemory");
+            configureServices?.Invoke(services);
+        });
     }
 
     /// <summary>Runs code against the database in a system scope for the given tenant (or none).</summary>
@@ -179,6 +185,11 @@ public class ApiFixture : IAsyncLifetime
     protected virtual Task<IReadOnlyDictionary<string, string?>?> PrepareAsync(string connectionString) =>
         Task.FromResult<IReadOnlyDictionary<string, string?>?>(null);
 
+    /// <summary>Service replacements for the host (applied after the application registrations).</summary>
+    protected virtual void ConfigureServices(IServiceCollection services)
+    {
+    }
+
     public PayFlowApiFactory Factory => _factory ?? throw new InvalidOperationException("Fixture not available.");
 
     public string? UnavailableReason { get; private set; }
@@ -194,7 +205,7 @@ public class ApiFixture : IAsyncLifetime
             return;
         }
 
-        _factory = new PayFlowApiFactory(connectionString, await PrepareAsync(connectionString));
+        _factory = new PayFlowApiFactory(connectionString, await PrepareAsync(connectionString), ConfigureServices);
         _ = _factory.Server; // start the host: runs migrations and background services
     }
 

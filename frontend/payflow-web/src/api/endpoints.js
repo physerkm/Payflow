@@ -54,6 +54,7 @@ export const orderApi = {
   create: (body, key) => data(http.post('/orders', body, withKey(key))),
   cancel: (id) => data(http.patch(`/orders/${id}/cancel`)),
   payments: (id) => data(http.get(`/orders/${id}/payments`)),
+  history: (id) => data(http.get(`/orders/${id}/history`)),
   pay: (id, paymentMethodToken, key) => data(http.post(`/orders/${id}/payments`, { paymentMethodToken }, withKey(key))),
 };
 

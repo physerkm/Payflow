@@ -35,6 +35,9 @@ public interface IOrderPaymentsPort
 {
     /// <summary>Cancels the order's in-flight payment if it has not been sent to the provider; otherwise throws 409.</summary>
     Task CancelActivePaymentAsync(Guid orderId, CancellationToken cancellationToken);
+
+    /// <summary>Payment, attempt and refund events of the order, for its history (unsorted).</summary>
+    Task<IReadOnlyList<OrderHistoryEntry>> GetPaymentHistoryAsync(Guid orderId, CancellationToken cancellationToken);
 }
 
 internal sealed class OrderPaymentCoordinator(IOrdersDb db, TimeProvider clock) : IOrderPaymentCoordinator, IOrderLookup

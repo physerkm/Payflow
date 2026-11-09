@@ -30,6 +30,46 @@ public sealed record OrderDto(
     DateTimeOffset? CancelledAt,
     IReadOnlyList<OrderItemDto> Items);
 
+/// <summary>
+/// One event in an order's history, derived from the order, its payments, attempts and refunds.
+/// Amounts are minor units of <see cref="Currency"/>; <see cref="Status"/> and <see cref="Code"/> carry outcomes.
+/// </summary>
+public sealed record OrderHistoryEntry(
+    DateTimeOffset OccurredAt,
+    string Type,
+    string? Status = null,
+    long? AmountMinor = null,
+    string? Currency = null,
+    string? Code = null,
+    Guid? PaymentId = null,
+    int? AttemptNumber = null,
+    string? Trigger = null,
+    string? Note = null);
+
+public static class OrderHistoryEvents
+{
+    public const string OrderCreated = "order.created";
+    public const string PaymentInitiated = "payment.initiated";
+    public const string PaymentAttempt = "payment.attempt";
+    public const string PaymentSucceeded = "payment.succeeded";
+    public const string PaymentFailed = "payment.failed";
+    public const string PaymentCancelled = "payment.cancelled";
+    public const string OrderPaid = "order.paid";
+    public const string RefundRequested = "refund.requested";
+    public const string RefundSucceeded = "refund.succeeded";
+    public const string RefundFailed = "refund.failed";
+    public const string OrderCancelled = "order.cancelled";
+
+    private static readonly string[] Sequence =
+    [
+        OrderCreated, PaymentInitiated, PaymentAttempt, PaymentSucceeded, PaymentFailed, PaymentCancelled,
+        OrderPaid, RefundRequested, RefundSucceeded, RefundFailed, OrderCancelled,
+    ];
+
+    /// <summary>Tie-breaker for events recorded at the same instant: the order they logically happen in.</summary>
+    public static int Rank(string type) => Array.IndexOf(Sequence, type);
+}
+
 public sealed record OrderSummaryDto(
     Guid Id,
     string OrderNumber,
@@ -123,6 +163,38 @@ public sealed class OrderService(
             ?? throw new NotFoundException("Order");
         var names = await customers.GetNamesAsync([order.CustomerId], cancellationToken);
         return ToDto(order, names.GetValueOrDefault(order.CustomerId));
+    }
+
+    /// <summary>Chronological history of the order. Payment events are included only for callers who may read payments.</summary>
+    public async Task<IReadOnlyList<OrderHistoryEntry>> GetHistoryAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var order = await db.Orders.AsNoTracking().SingleOrDefaultAsync(o => o.Id == id, cancellationToken)
+            ?? throw new NotFoundException("Order");
+
+        var entries = new List<OrderHistoryEntry>
+        {
+            new(order.CreatedAt, OrderHistoryEvents.OrderCreated, AmountMinor: order.TotalMinor, Currency: order.Currency, Note: order.Notes),
+        };
+        if (order.PaidAt is { } paidAt)
+        {
+            entries.Add(new(paidAt, OrderHistoryEvents.OrderPaid));
+        }
+
+        if (order.CancelledAt is { } cancelledAt)
+        {
+            entries.Add(new(cancelledAt, OrderHistoryEvents.OrderCancelled));
+        }
+
+        if (tenantContext.HasPermission(Authorization.Permissions.PaymentsRead))
+        {
+            entries.AddRange(await payments.GetPaymentHistoryAsync(order.Id, cancellationToken));
+        }
+
+        return entries
+            .OrderBy(e => e.OccurredAt)
+            .ThenBy(e => OrderHistoryEvents.Rank(e.Type))
+            .ThenBy(e => e.AttemptNumber)
+            .ToList();
     }
 
     public async Task<PagedResult<OrderSummaryDto>> ListAsync(OrderListQuery query, CancellationToken cancellationToken)

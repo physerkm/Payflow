@@ -10,6 +10,7 @@ import { errorMessage } from '../api/client';
 import { ConfirmDialog, KeyValue, PageHeader, Section } from '../components/Common';
 import { QueryState } from '../components/DataState';
 import StatusChip from '../components/StatusChip';
+import OrderHistory from '../components/OrderHistory';
 import { PayDialog } from '../components/PaymentDialogs';
 import { formatDateTime, formatMoney } from '../lib/format';
 
@@ -22,6 +23,7 @@ export default function OrderDetailPage() {
   const [cancelling, setCancelling] = useState(false);
   const orderQuery = useQuery({ queryKey: useTenantKey('orders', orderId), queryFn: () => orderApi.get(orderId) });
   const paymentsQuery = useQuery({ queryKey: useTenantKey('orders', orderId, 'payments'), queryFn: () => orderApi.payments(orderId), enabled: can('payments.read') });
+  const historyQuery = useQuery({ queryKey: useTenantKey('orders', orderId, 'history'), queryFn: () => orderApi.history(orderId) });
 
   const cancel = useMutation({
     mutationFn: () => orderApi.cancel(orderId),
@@ -130,6 +132,13 @@ export default function OrderDetailPage() {
                   </Section>
                 </Grid>
               )}
+              <Grid size={12}>
+                <Section title="History">
+                  <QueryState query={historyQuery} rows={3}>
+                    {(entries) => <OrderHistory entries={entries} timeZone={tenant.timeZone} />}
+                  </QueryState>
+                </Section>
+              </Grid>
             </Grid>
             <PayDialog
               open={paying}

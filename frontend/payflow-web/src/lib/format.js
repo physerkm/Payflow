@@ -54,6 +54,12 @@ export function formatDateTime(value, timeZone) {
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short', timeZone: timeZone || undefined }).format(new Date(value));
 }
 
+/** Date and time with seconds, for event histories where several steps happen within a minute. */
+export function formatTimestamp(value, timeZone) {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'medium', timeZone: timeZone || undefined }).format(new Date(value));
+}
+
 export function formatDate(value, timeZone) {
   if (!value) return '—';
   return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: timeZone || undefined }).format(new Date(value));

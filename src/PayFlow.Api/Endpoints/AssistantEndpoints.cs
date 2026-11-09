@@ -9,6 +9,8 @@ internal static class AssistantEndpoints
 {
     public const string AssistantRateLimitPolicy = "assistant";
 
+    public const string AssistantTimeoutPolicy = "assistant";
+
     public static RouteGroupBuilder MapAssistantEndpoints(this RouteGroupBuilder api)
     {
         var group = api.MapGroup("/assistant").WithTags("AI assistant");
@@ -22,6 +24,7 @@ internal static class AssistantEndpoints
             .Validate<AskAssistantRequest>()
             .RequirePermission(Permissions.ReportsRead)
             .RequireRateLimiting(AssistantRateLimitPolicy)
+            .WithRequestTimeout(AssistantTimeoutPolicy)
             .WithSummary("Ask a natural-language question about payments, refunds and revenue (read-only, tenant-scoped)");
 
         return api;

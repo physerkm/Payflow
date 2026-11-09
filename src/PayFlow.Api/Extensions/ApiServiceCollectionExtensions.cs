@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
@@ -28,6 +29,17 @@ public sealed class RateLimitingOptions
 
     /// <summary>AI assistant questions per minute per user.</summary>
     public int AssistantPermitPerMinute { get; set; } = 10;
+}
+
+public sealed class ApiTimeoutOptions
+{
+    public const string SectionName = "RequestTimeouts";
+
+    /// <summary>Upper bound for an ordinary API request; after it the request is cancelled and answered with 504.</summary>
+    public TimeSpan Default { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>The AI assistant waits on a model through several tool round-trips.</summary>
+    public TimeSpan Assistant { get; set; } = TimeSpan.FromSeconds(120);
 }
 
 internal static class ApiServiceCollectionExtensions
@@ -83,6 +95,15 @@ internal static class ApiServiceCollectionExtensions
         services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
         services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, ProblemAuthorizationResultHandler>();
         services.AddAuthorization();
+
+        // Resource-exhaustion guard: no request holds a connection and a DB transaction indefinitely.
+        services.Configure<ApiTimeoutOptions>(configuration.GetSection(ApiTimeoutOptions.SectionName));
+        services.AddRequestTimeouts();
+        services.AddOptions<RequestTimeoutOptions>().Configure<IOptions<ApiTimeoutOptions>>((options, timeouts) =>
+        {
+            options.DefaultPolicy = TimeoutPolicy(timeouts.Value.Default);
+            options.AddPolicy(AssistantEndpoints.AssistantTimeoutPolicy, TimeoutPolicy(timeouts.Value.Assistant));
+        });
 
         services.Configure<RateLimitingOptions>(configuration.GetSection(RateLimitingOptions.SectionName));
         services.AddRateLimiter(options =>
@@ -166,4 +187,15 @@ internal static class ApiServiceCollectionExtensions
         services.AddHealthChecks();
         return services;
     }
+
+    private static RequestTimeoutPolicy TimeoutPolicy(TimeSpan timeout) => new()
+    {
+        Timeout = timeout,
+        TimeoutStatusCode = StatusCodes.Status504GatewayTimeout,
+        WriteTimeoutResponse = context => ProblemAuthorizationResultHandler.WriteAsync(
+            context,
+            StatusCodes.Status504GatewayTimeout,
+            "request_timeout",
+            "The request took too long and was cancelled. Check the resource state before retrying."),
+    };
 }

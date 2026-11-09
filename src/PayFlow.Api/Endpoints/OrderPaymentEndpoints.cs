@@ -32,6 +32,10 @@ internal static class OrderPaymentEndpoints
             .RequirePermission(Permissions.OrdersRead)
             .WithSummary("Order details with item snapshots");
 
+        group.MapGet("/{id:guid}/history", async (Guid id, OrderService orders, CancellationToken ct) => TypedResults.Ok(await orders.GetHistoryAsync(id, ct)))
+            .RequirePermission(Permissions.OrdersRead)
+            .WithSummary("Chronological order history: creation, payment attempts and outcomes, refunds, cancellation");
+
         group.MapPatch("/{id:guid}/cancel", async (Guid id, OrderService orders, CancellationToken ct) => TypedResults.Ok(await orders.CancelAsync(id, ct)))
             .RequirePermission(Permissions.OrdersWrite)
             .WithSummary("Cancel an order (not allowed once paid or while the provider is processing)");

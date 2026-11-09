@@ -64,6 +64,7 @@ app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<IdempotencyBufferingMiddleware>();
 app.UseCors();
+app.UseRequestTimeouts();
 app.UseAuthentication();
 app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseRateLimiter();
