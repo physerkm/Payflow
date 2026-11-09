@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
-  AppBar, Avatar, Badge, Box, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, ListSubheader,
+  AppBar, Avatar, Badge, Box, Divider, Drawer, IconButton, List, ListItem, ListItemButton, ListItemIcon, ListItemText, ListSubheader,
   Menu, MenuItem, Popover, Stack, Toolbar, Tooltip, Typography, useMediaQuery, useTheme,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
@@ -29,6 +29,9 @@ import { useColorMode } from '../colorMode';
 import { formatDateTime, humanize } from '../lib/format';
 
 const DRAWER_WIDTH = 248;
+
+// Text for screen readers only.
+const visuallyHidden = { position: 'absolute', width: '1px', height: '1px', p: 0, m: '-1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0 };
 
 const NAV = [
   { section: 'Overview', items: [{ to: '/', label: 'Dashboard', icon: DashboardOutlinedIcon, end: true }] },
@@ -70,8 +73,8 @@ function Navigation({ onNavigate }) {
         return (
           <List key={group.section} dense subheader={<ListSubheader sx={{ bgcolor: 'transparent', lineHeight: '32px' }}>{group.section}</ListSubheader>}>
             {items.map(({ to, label, icon: Icon, end }) => (
+              <ListItem key={to} disablePadding>
               <ListItemButton
-                key={to}
                 component={NavLink}
                 to={to}
                 end={end}
@@ -84,16 +87,19 @@ function Navigation({ onNavigate }) {
                 <ListItemIcon sx={{ minWidth: 36 }}><Icon fontSize="small" /></ListItemIcon>
                 <ListItemText primary={label} />
               </ListItemButton>
+              </ListItem>
             ))}
           </List>
         );
       })}
       {me.data?.platformRole && (
         <List dense subheader={<ListSubheader sx={{ bgcolor: 'transparent', lineHeight: '32px' }}>Platform</ListSubheader>}>
-          <ListItemButton component={NavLink} to="/platform" onClick={onNavigate} sx={{ mx: 1, borderRadius: 2 }}>
-            <ListItemIcon sx={{ minWidth: 36 }}><AdminPanelSettingsOutlinedIcon fontSize="small" /></ListItemIcon>
-            <ListItemText primary="Platform admin" />
-          </ListItemButton>
+          <ListItem disablePadding>
+            <ListItemButton component={NavLink} to="/platform" onClick={onNavigate} sx={{ mx: 1, borderRadius: 2 }}>
+              <ListItemIcon sx={{ minWidth: 36 }}><AdminPanelSettingsOutlinedIcon fontSize="small" /></ListItemIcon>
+              <ListItemText primary="Platform admin" />
+            </ListItemButton>
+          </ListItem>
         </List>
       )}
     </Box>
@@ -116,8 +122,10 @@ function TenantSwitcher() {
 
   return (
     <>
-      <ListItemButton onClick={(e) => setAnchor(e.currentTarget)} sx={{ mx: 1, my: 1, flexGrow: 0, borderRadius: 2, border: 1, borderColor: 'divider' }} aria-label="Switch tenant">
-        <Avatar variant="rounded" sx={{ width: 32, height: 32, mr: 1.5, bgcolor: 'primary.main', fontSize: 14, fontWeight: 700 }}>
+      {/* The visible company name is part of the accessible name (WCAG 2.5.3); the prefix is for screen readers. */}
+      <ListItemButton onClick={(e) => setAnchor(e.currentTarget)} aria-haspopup="menu" sx={{ mx: 1, my: 1, flexGrow: 0, borderRadius: 2, border: 1, borderColor: 'divider' }}>
+        <Box component="span" sx={visuallyHidden}>Switch tenant: </Box>
+        <Avatar aria-hidden variant="rounded" sx={{ width: 32, height: 32, mr: 1.5, bgcolor: 'primary.main', fontSize: 14, fontWeight: 700 }}>
           {tenant.name.slice(0, 2).toUpperCase()}
         </Avatar>
         <ListItemText primary={tenant.name} secondary={humanize(tenant.role)} primaryTypographyProps={{ noWrap: true, fontWeight: 600 }} />
@@ -161,7 +169,8 @@ function NotificationsButton() {
   return (
     <>
       <Tooltip title="Notifications">
-        <IconButton onClick={open} aria-label={`Notifications (${unread} unread)`}>
+        {/* The name starts with the visible badge count (WCAG 2.5.3 label in name). */}
+        <IconButton onClick={open} aria-label={unread > 0 ? `${unread} unread notifications` : 'Notifications'}>
           <Badge badgeContent={unread} color="error"><NotificationsNoneIcon /></Badge>
         </IconButton>
       </Tooltip>
@@ -171,9 +180,11 @@ function NotificationsButton() {
           {recent.length === 0 && <Typography variant="body2" color="text.secondary" sx={{ px: 2, pb: 2 }}>No notifications yet.</Typography>}
           <List dense>
             {recent.map((n) => (
-              <ListItemButton key={n.id} component={NavLink} to={n.resourceType === 'payment' ? `/payments/${n.resourceId}` : '/'} onClick={() => setAnchor(null)}>
-                <ListItemText primary={n.title} secondary={<>{n.message}<br />{formatDateTime(n.createdAt, tenant.timeZone)}</>} />
-              </ListItemButton>
+              <ListItem key={n.id} disablePadding>
+                <ListItemButton component={NavLink} to={n.resourceType === 'payment' ? `/payments/${n.resourceId}` : '/'} onClick={() => setAnchor(null)}>
+                  <ListItemText primary={n.title} secondary={<>{n.message}<br />{formatDateTime(n.createdAt, tenant.timeZone)}</>} />
+                </ListItemButton>
+              </ListItem>
             ))}
           </List>
         </Box>

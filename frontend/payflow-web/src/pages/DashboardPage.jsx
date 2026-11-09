@@ -37,7 +37,7 @@ export default function DashboardPage() {
           canReport && (
             <Stack direction="row" spacing={1} alignItems="center">
               {currencies.length > 1 && (
-                <TextField select size="small" value={currency} onChange={(e) => setCurrency(e.target.value)} sx={{ width: 110 }} aria-label="Currency">
+                <TextField select size="small" value={currency} onChange={(e) => setCurrency(e.target.value)} sx={{ width: 110 }} label="Currency">
                   {currencies.map((c) => <MenuItem key={c.currency} value={c.currency}>{c.currency}</MenuItem>)}
                 </TextField>
               )}

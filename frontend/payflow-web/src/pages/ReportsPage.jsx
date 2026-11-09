@@ -31,7 +31,7 @@ export default function ReportsPage() {
         subtitle={`Days are grouped in ${tenant.timeZone}. Currencies are reported separately - no exchange-rate conversion.`}
         actions={
           <Stack direction="row" spacing={1} alignItems="center">
-            <TextField select size="small" value={currency} onChange={(e) => setCurrency(e.target.value)} sx={{ width: 110 }} aria-label="Currency">
+            <TextField select size="small" value={currency} onChange={(e) => setCurrency(e.target.value)} sx={{ width: 110 }} label="Currency">
               {(currencies.length ? currencies : [currency]).map((c) => <MenuItem key={c} value={c}>{c}</MenuItem>)}
             </TextField>
             <RangeFilter value={range} onChange={setRange} />

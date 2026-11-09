@@ -100,6 +100,15 @@ export function DailyBarChart({ labels, series, timeZone, height = 280, valueFor
  * One whole split into parts (e.g. payment outcomes). Each block carries its share inside when it fits;
  * the legend names every part with its count, and hover gives name, count and share.
  */
+const channel = (v) => { const c = parseInt(v, 16) / 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+const luminance = (hex) => 0.2126 * channel(hex.slice(1, 3)) + 0.7152 * channel(hex.slice(3, 5)) + 0.0722 * channel(hex.slice(5, 7));
+
+/** White or near-black label, whichever contrasts more with the segment color (WCAG 1.4.3). */
+export function readableInk(background) {
+  const l = luminance(background);
+  return (1.05 / (l + 0.05)) >= ((l + 0.05) / (luminance('#0b0b0b') + 0.05)) ? '#ffffff' : '#0b0b0b';
+}
+
 export function SegmentedBar({ parts, ariaLabel }) {
   const total = parts.reduce((sum, p) => sum + p.value, 0);
   if (total === 0) {
@@ -116,7 +125,7 @@ export function SegmentedBar({ parts, ariaLabel }) {
                 tabIndex={0}
                 sx={{
                   flex: `${p.value} 0 0`, bgcolor: p.color, borderRadius: '4px', minWidth: 6, display: 'flex', alignItems: 'center', px: 1,
-                  color: p.ink ?? '#ffffff', fontSize: 12, fontWeight: 600, overflow: 'hidden', whiteSpace: 'nowrap',
+                  color: p.ink ?? readableInk(p.color), fontSize: 12, fontWeight: 600, overflow: 'hidden', whiteSpace: 'nowrap',
                 }}
               >
                 {share >= 0.12 ? formatPercent(share) : ''}

@@ -23,11 +23,15 @@ export function createAppTheme(mode) {
   return createTheme({
     palette: {
       mode,
-      primary: { main: dark ? '#3987e5' : '#2a78d6' },
+      // UI colors meet WCAG AA (4.5:1) for text on paper and page backgrounds; button text color is picked
+      // with the same threshold. Chart colors (vizPalette) are separate: they are graphics, not text.
+      contrastThreshold: 4.5,
+      primary: { main: dark ? '#3987e5' : '#276fc6' },
       secondary: { main: dark ? '#9085e9' : '#6250d6' },
       success: { main: dark ? '#0ca30c' : '#00800a' },
-      error: { main: '#d03b3b' },
-      warning: { main: dark ? '#fab219' : '#b86e00' },
+      error: { main: dark ? '#d03b3b' : '#cb3a3a' },
+      warning: { main: dark ? '#fab219' : '#a16000' },
+      info: { main: dark ? '#29b6f6' : '#0275b4' },
       background: dark ? { default: '#0d0d0d', paper: '#1a1a19' } : { default: '#f6f6f3', paper: '#ffffff' },
       text: dark ? { primary: '#f0efec', secondary: '#c3c2b7' } : { primary: '#0b0b0b', secondary: '#52514e' },
       divider: dark ? 'rgba(255,255,255,0.10)' : 'rgba(11,11,11,0.10)',

@@ -110,7 +110,7 @@ export default function ProductsPage() {
       field: 'status', headerName: 'Status', width: 170, sortable: false,
       renderCell: ({ row }) => writable ? (
         <Stack direction="row" alignItems="center" spacing={0.5}>
-          <Switch size="small" checked={row.status === 'Active'} onClick={(e) => e.stopPropagation()} onChange={(e) => toggle.mutate({ id: row.id, active: e.target.checked })} inputProps={{ 'aria-label': `Toggle ${row.sku}` }} />
+          <Switch size="small" checked={row.status === 'Active'} onClick={(e) => e.stopPropagation()} onChange={(e) => toggle.mutate({ id: row.id, active: e.target.checked })} slotProps={{ input: { 'aria-label': `Active: ${row.sku}` } }} />
           <StatusChip status={row.status} />
         </Stack>
       ) : <StatusChip status={row.status} />,

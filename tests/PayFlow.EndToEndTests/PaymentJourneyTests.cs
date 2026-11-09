@@ -13,7 +13,7 @@ namespace PayFlow.EndToEndTests;
 /// </summary>
 public sealed class PaymentJourneyTests : IAsyncLifetime
 {
-    private static readonly string? BaseUrl = Environment.GetEnvironmentVariable("PAYFLOW_E2E_BASE_URL");
+    private static readonly string? BaseUrl = E2E.BaseUrl;
     private IPlaywright? _playwright;
     private IBrowser? _browser;
 
@@ -25,11 +25,7 @@ public sealed class PaymentJourneyTests : IAsyncLifetime
         }
 
         _playwright = await Playwright.CreateAsync();
-        _browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-        {
-            Channel = Environment.GetEnvironmentVariable("PAYFLOW_E2E_BROWSER_CHANNEL"),
-            Headless = Environment.GetEnvironmentVariable("PAYFLOW_E2E_HEADED") != "1",
-        });
+        _browser = await E2E.LaunchAsync(_playwright);
     }
 
     public async ValueTask DisposeAsync()
@@ -192,10 +188,5 @@ public sealed class PaymentJourneyTests : IAsyncLifetime
         await Assertions.Expect(page.GetByRole(AriaRole.Heading, new() { Name = "Sign in" })).ToBeVisibleAsync();
     }
 
-    private static string Artifact(string name)
-    {
-        var directory = Path.Combine(AppContext.BaseDirectory, "e2e-artifacts");
-        Directory.CreateDirectory(directory);
-        return Path.Combine(directory, name);
-    }
+    private static string Artifact(string name) => E2E.Artifact(name);
 }
