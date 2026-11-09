@@ -16,18 +16,23 @@ PayFlow lets several companies (tenants) run customers, products, orders, paymen
 | Operations | Docker Compose, GitHub Actions, OpenTelemetry → Prometheus / Tempo / Loki / Grafana |
 | AI (advanced) | Read-only reporting assistant on Claude with four allowlisted, tenant-scoped tools |
 
+![PayFlow dashboard](docs/images/dashboard.png)
+
+▶ **[Demo video](docs/media/payflow-demo.webm)** (1 min, WebM): sign in, create an order, take a payment, refund part of it,
+read the order history. More in [Screenshots](#screenshots).
+
 ---
 
 ## Contents
 
-1. [Quick start](#quick-start) · [Hızlı başlangıç (TR)](#hızlı-başlangıç-tr)
+1. [Quick start](#quick-start) · [Hızlı başlangıç (TR)](#hızlı-başlangıç-tr) · [Screenshots](#screenshots)
 2. [Architecture](#architecture)
 3. [Payment processing](#payment-processing)
 4. [Multi-tenancy & security](#multi-tenancy--security)
 5. [Data model](#data-model)
 6. [API](#api)
 7. [Testing](#testing)
-8. [Observability & operations](#observability--operations)
+8. [Observability & operations](#observability--operations) · [Performance baseline](#performance-baseline)
 9. [AI reporting assistant](#ai-reporting-assistant)
 10. [Project structure](#project-structure)
 11. [Design decisions (ADRs)](#design-decisions-adrs)
@@ -58,6 +63,19 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317 docker compose --profile 
 ```
 
 The compose file mirrors production choices: a one-shot **migrator** applies migrations with the owner role, while the API and Worker connect as the least-privileged `payflow_app` role with **PostgreSQL Row-Level Security** enforced.
+
+**Demo data** (optional) is created through the public API, like a user would:
+
+```bash
+node scripts/seed-demo.mjs        # PAYFLOW_URL=http://localhost:5080 for Option B
+```
+
+| Sign in | Password | Company |
+|---|---|---|
+| `demo@payflow.local` | `PayFlow2026` | **Demo Mağaza** (TRY): 5 customers, 5 products, 10 orders, payments in every provider outcome, a partial and a full refund, a pending invitation |
+| `demo-b@payflow.local` | `PayFlow2026` | **Globex Ltd** (EUR): a second tenant for the isolation demo |
+
+Re-running the script is safe; existing demo companies are left untouched.
 
 ### Option B — Local development
 
@@ -103,7 +121,18 @@ A scripted 5-minute demo (including stopping RabbitMQ and cross-tenant access at
 docker compose up --build        # Web: http://localhost:8080  ·  API dokümanı: http://localhost:5080/scalar
 ```
 
-Docker yoksa: PostgreSQL ve (isteğe bağlı) RabbitMQ'yu kendiniz çalıştırın, ardından `dotnet run --project src/PayFlow.Api`, `dotnet run --project src/PayFlow.Worker` (RabbitMQ yoksa `Messaging__Transport=InMemory`) ve `frontend/payflow-web` içinde `npm install && npm run dev`. Kayıt olun, şirket oluşturun, müşteri/ürün/sipariş ekleyin ve yukarıdaki test token'larıyla ödeme senaryolarını deneyin. Ayrıntılı demo akışı: [docs/demo.md](docs/demo.md).
+Docker yoksa: PostgreSQL ve (isteğe bağlı) RabbitMQ'yu kendiniz çalıştırın, ardından `dotnet run --project src/PayFlow.Api`, `dotnet run --project src/PayFlow.Worker` (RabbitMQ yoksa `Messaging__Transport=InMemory`) ve `frontend/payflow-web` içinde `npm install && npm run dev`. Kayıt olun, şirket oluşturun, müşteri/ürün/sipariş ekleyin ve yukarıdaki test token'larıyla ödeme senaryolarını deneyin. Hazır örnek veri için `node scripts/seed-demo.mjs` çalıştırıp `demo@payflow.local` / `PayFlow2026` ile giriş yapabilirsiniz. Ayrıntılı demo akışı: [docs/demo.md](docs/demo.md).
+
+### Screenshots
+
+| | |
+|---|---|
+| ![Order detail with history](docs/images/order-history.png) **Order history**: a transient provider error on attempt 1, the automatic retry, success | ![Payment detail](docs/images/payment-detail.png) **Payment detail**: provider attempts, refunds, refundable amount |
+| ![Orders](docs/images/orders.png) **Orders**: server-side paging, filters and allowlisted sorting | ![Reports](docs/images/reports.png) **Reports**: per-currency figures, never converted, with table views behind every chart |
+| ![Dashboard in dark mode](docs/images/dashboard-dark.png) **Dark mode** with its own validated palette | ![Grafana](docs/images/grafana.png) **Grafana**: API, payments, outbox, queues, worker and database |
+
+The screenshots and the demo video are generated from the demo data by an opt-in browser test, so they can be refreshed after UI changes:
+`PAYFLOW_E2E_BASE_URL=http://localhost:8080 PAYFLOW_E2E_CAPTURE_DIR=$PWD/docs dotnet test tests/PayFlow.EndToEndTests --filter ReadmeMediaTests`.
 
 ---
 
@@ -282,11 +311,12 @@ Base path `/api/v1`, JSON, RFC 7807 problem details with a stable `code`, OpenAP
 |---|---|---|---|
 | Unit | xUnit v3 + Shouldly | Domain invariants and state machines, money arithmetic, role matrix, backoff, webhook signatures, outbox mapping, assistant tool safety | 91 |
 | Architecture | NetArchTest | Layer dependencies, module boundaries, no public setters on entities | 13 |
-| Integration | WebApplicationFactory + **real PostgreSQL** (Testcontainers) | Auth & refresh rotation, tenant isolation, RBAC, idempotency under concurrency, all payment scenarios, webhooks, refunds under concurrency, broker outage, duplicate delivery, composite FKs, RLS (incl. the full app under RLS), platform administration | 58 |
-| Messaging | Testcontainers RabbitMQ | Publisher confirms, routing, dead-lettering, unroutable messages | 3 |
-| E2E | Playwright (.NET) | Register → company → customer → product → order → payment → refund → dashboard → reports in a browser; platform admin suspends/reactivates a tenant | 3 |
-| Frontend | Vitest + Testing Library | Minor-unit money parsing/formatting, status chips | 18 |
-| Load | k6 | p95/p99 and error-rate baseline for reads and payment initiation | — |
+| Integration | WebApplicationFactory + **real PostgreSQL** (Testcontainers) | Auth & refresh rotation, tenant isolation, RBAC, idempotency under concurrency, all payment scenarios, webhooks, refunds under concurrency, broker outage, duplicate delivery, composite FKs, RLS (incl. the full app under RLS), platform administration, order history, request time budget (504) | 61 |
+| Messaging | Testcontainers RabbitMQ | Publisher confirms, routing, delayed retry queue round trip, dead-lettering, unroutable messages | 4 |
+| E2E | Playwright (.NET) | Register → company → customer → product → order → payment → refund → dashboard → reports in a browser; platform admin suspends/reactivates a tenant; unauthenticated redirect | 3 |
+| Accessibility | Playwright + axe-core | WCAG 2.1 A/AA automated rules on 16 screens and states, including dialogs and dark mode — zero violations | 1 |
+| Frontend | Vitest + Testing Library | Minor-unit money parsing/formatting, status chips, sign-in company selection, order history, label contrast | 25 |
+| Load | k6 + `EXPLAIN (ANALYZE, BUFFERS)` | p95/p99 and error rate for reads and payment initiation; query plans at 100 000 orders | [results](#performance-baseline) |
 
 ```bash
 dotnet test tests/PayFlow.UnitTests
@@ -294,7 +324,7 @@ dotnet test tests/PayFlow.ArchitectureTests
 dotnet test tests/PayFlow.IntegrationTests          # needs Docker, or PAYFLOW_TEST_POSTGRES=<admin connection string>
 PAYFLOW_E2E_BASE_URL=http://localhost:8080 dotnet test tests/PayFlow.EndToEndTests   # + PAYFLOW_E2E_PLATFORM_ADMIN=<email in Platform:Admins>
 cd frontend/payflow-web && npm test
-k6 run -e BASE_URL=http://localhost:5080 tests/load/k6/baseline.js
+# load test and query plans: see docs/performance/baseline.md
 ```
 
 The integration suite never uses the EF InMemory provider. Concurrency tests fire real parallel HTTP requests (e.g. 8 identical idempotent payment requests → exactly one payment; 6 concurrent 3 000-unit refunds on a 10 000 payment → exactly three succeed).
@@ -304,11 +334,24 @@ The integration suite never uses the EF InMemory provider. Concurrency tests fir
 ## Observability & operations
 
 - **Traces:** HTTP request → use case → SQL → outbox publish → RabbitMQ → consumer → provider call, in **one trace** (the outbox stores the W3C `traceparent` of the originating request).
-- **Metrics:** request rate/latency/errors, provider outcomes, outbox backlog and oldest pending age, retries, dead letters, reconciliation results, processing duration, assistant tokens/latency, RabbitMQ queue depth.
+- **Metrics:** request rate/latency/5xx rate, provider outcomes, payment timeouts and the reconciliation backlog (open attempts by status), outbox backlog and oldest pending age, retries, dead letters, per-queue depth including dead-letter queues, reconciliation results, processing duration, assistant tokens/latency.
+- **Database:** Npgsql connection-pool usage per service; `postgres-exporter` (read-only `pg_monitor` role) for sessions by state, sessions waiting for locks, the longest open transaction and the top statements from `pg_stat_statements`.
 - **Logs:** structured JSON with correlation id, tenant id, trace id; no secrets or card data.
 - **Health:** `/health/live` and `/health/ready` (PostgreSQL; Worker also RabbitMQ and an outbox heartbeat). Containers use `--healthcheck` mode (no curl in the image).
-- **Alerts** ([alerts.yml](infrastructure/monitoring/alerts.yml)) link to runbooks: [outbox backlog](docs/runbooks/outbox-backlog.md), [dead-letter queue](docs/runbooks/dead-letter-queue.md), [unknown payments](docs/runbooks/unknown-payments.md), [incident response](docs/runbooks/incident-response.md), [deploy & rollback](docs/runbooks/deploy-and-rollback.md).
-- **CI/CD** ([ci.yml](.github/workflows/ci.yml)): build with warnings as errors, vulnerable-package check, unit/architecture/integration tests, frontend lint/test/build/audit, secret scanning, container images (GHCR on `main`), docker-compose + Playwright E2E, gated staging deployment.
+- **Time budget:** every API request is cancelled after 30 s (assistant: 120 s) and answered with `504 request_timeout`, so no request holds a connection or a transaction indefinitely.
+- **Alerts** (10 rules in [alerts.yml](infrastructure/monitoring/alerts.yml)) link to runbooks: [outbox backlog](docs/runbooks/outbox-backlog.md), [dead-letter queue](docs/runbooks/dead-letter-queue.md), [unknown payments](docs/runbooks/unknown-payments.md), [database pressure](docs/runbooks/database.md), [incident response](docs/runbooks/incident-response.md), [deploy & rollback](docs/runbooks/deploy-and-rollback.md).
+- **CI/CD** ([ci.yml](.github/workflows/ci.yml)): build with warnings as errors, vulnerable-package check, unit/architecture/integration tests, frontend lint/test/build/audit, secret scanning, container images (GHCR on `main`), docker-compose + Playwright E2E and accessibility scan, demo-data seeding, gated staging deployment.
+
+### Performance baseline
+
+Measured with k6 on a developer machine (Docker Desktop, 16 vCPU), 20 concurrent readers plus 5 payments per second for one minute. Not an SLA; the method and the full numbers are in [docs/performance/baseline.md](docs/performance/baseline.md).
+
+| | p50 | p95 | p99 | Errors |
+|---|---|---|---|---|
+| Read endpoints (orders, payments, customers) | 8 ms | **23 ms** | 47 ms | 0 % |
+| Payment initiation (202) | 10 ms | 26 ms | 58 ms | 0 % (301 / 301 accepted) |
+
+During the run the outbox never held more than one message, no queue built up, no session waited for a lock and every payment finished `Succeeded`. Query plans at 100 000 orders per tenant (as `payflow_app` with RLS): first page of orders 0.6 ms, payments with attempts 0.3 ms, outbox poll with a 50 000-message backlog 0.1 ms.
 
 ---
 
@@ -337,9 +380,10 @@ PayFlow/
 │   ├── PayFlow.Api/             Minimal API endpoints, middleware, idempotency filter
 │   └── PayFlow.Worker/          outbox publisher, consumers, background jobs
 ├── frontend/payflow-web/        React + Vite + MUI admin panel
-├── tests/                       Unit · Integration · Architecture · EndToEnd · load (k6)
-├── infrastructure/              postgres init, OpenTelemetry / Prometheus / Grafana config
-├── docs/                        architecture, database, ADRs, runbooks, security, AI, demo
+├── tests/                       Unit · Integration · Architecture · EndToEnd (+ accessibility) · load (k6, SQL plans)
+├── scripts/                     seed-demo.mjs (demo data through the public API)
+├── infrastructure/              postgres init, OpenTelemetry / Prometheus / Grafana / postgres-exporter config
+├── docs/                        architecture, database, ADRs, runbooks, security, AI, performance, demo, images
 ├── docker-compose.yml
 └── .github/workflows/ci.yml
 ```
@@ -365,7 +409,7 @@ PayFlow/
 
 ## Verified end to end
 
-On Docker Desktop (Windows 11, WSL 2) with `docker compose --profile observability up --build`: all containers healthy; migrations applied by the one-shot migrator; API/Worker connected as `payflow_app` with RLS on 9 tables; all six payment scenarios plus refunds over real RabbitMQ and signed container-to-container webhooks; RabbitMQ stopped mid-demo → payment accepted (202), event kept in the outbox, published ~24 s after the broker returned; Playwright journey through nginx; all 61 integration tests with Testcontainers (PostgreSQL + RabbitMQ); traces in Tempo, logs in Loki, metrics in Prometheus and the provisioned Grafana dashboard (API p95 ≈ 110 ms locally).
+On Docker Desktop (Windows 11, WSL 2) with `docker compose --profile observability up --build`: all containers healthy; migrations applied by the one-shot migrator; API/Worker connected as `payflow_app` with RLS on 9 tables; all six payment scenarios plus refunds over real RabbitMQ and signed container-to-container webhooks; RabbitMQ stopped mid-demo → payment accepted (202), event kept in the outbox, published ~24 s after the broker returned; Playwright journey through nginx; all 61 integration tests with Testcontainers (PostgreSQL + RabbitMQ); traces in Tempo, logs in Loki, metrics in Prometheus and the provisioned Grafana dashboard (API p95 ≈ 110 ms locally). Later on the same setup: the k6 baseline and query plans above, the axe-core accessibility scan with zero WCAG 2.1 A/AA violations, and the demo-data script on a fresh and on an existing database.
 
 ## Known limitations
 
@@ -374,3 +418,6 @@ On Docker Desktop (Windows 11, WSL 2) with `docker compose --profile observabili
 - Invitations are accepted in-app (no email delivery yet); notifications are in-app only.
 - Platform roles come from configured emails and accounts have no email verification yet: register the platform accounts yourself before listing them (use SSO / verified email in production).
 - Staging deployment is a gated placeholder in CI — the target platform is not chosen.
+- List pages show a total count, which costs a scan of the tenant's rows (15 ms at 100 000 orders, growing linearly). Very large tenants would need keyset pagination or estimated totals ([baseline](docs/performance/baseline.md)).
+- The AI assistant is tested with scripted and fake models (tool safety, tenant scoping, time budget); it needs an Anthropic API key to run against the real model, which CI does not have.
+- Automated accessibility checks (axe-core) cover only part of WCAG; keyboard-only and screen-reader passes are manual.

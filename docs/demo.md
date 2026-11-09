@@ -2,6 +2,8 @@
 
 Start everything: `docker compose up --build` (optionally `--profile observability` with `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317`). Web app: http://localhost:8080, API: http://localhost:5080/scalar.
 
+**Shortcut:** `node scripts/seed-demo.mjs` creates both companies with data: **Demo Mağaza** (`demo@payflow.local`) and **Globex Ltd** (`demo-b@payflow.local`), password `PayFlow2026`. Use them for steps 1 and 3 instead of creating everything by hand. A one-minute recording of the main flow is in [media/payflow-demo.webm](media/payflow-demo.webm).
+
 ## 1. Multi-tenancy (1 min)
 1. Register `owner-a@demo.test`, create company **Acme**. In a private window register `owner-b@demo.test`, create **Globex**.
 2. In Acme create a customer, a product (`PRO-PLAN`, `1500.75 TRY`) and an order.
@@ -20,6 +22,8 @@ Create three orders and pay with *Decline*, *Timeout* and *Transient error*:
 - Decline → `Failed (card_declined)`, one attempt, no retry.
 - Timeout → `Unknown`, then reconciliation confirms `Succeeded` — **one** charge at the provider.
 - Transient error → attempt 1 `Failed`, attempt 2 (automatic retry) `Succeeded`.
+
+Open any of these orders: the **History** section lists every step with its time - order created, payment started, each provider attempt with its outcome, payment result, refunds.
 
 ## 4. Outbox recovery (1 min)
 ```bash

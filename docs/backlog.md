@@ -4,7 +4,7 @@
 
 | ID | Issue | Status | Where / evidence |
 |---|---|---|---|
-| PF-001 | Repository and project board | 🟡 | Repository layout ready; create the GitHub repo and board |
+| PF-001 | Repository and project board | 🟡 | GitHub repository [physerkm/Payflow](https://github.com/physerkm/Payflow) with CI; branch protection and project board not set up yet |
 | PF-002 | .NET solution and projects | ✅ | `PayFlow.sln`, reference rules in csproj + architecture tests |
 | PF-003 | Architecture decision records | ✅ | `docs/adr/` (ADR-001…010) |
 | PF-004 | Local Docker Compose | ✅ | `docker-compose.yml` |
@@ -22,7 +22,7 @@
 | PF-016 | Order aggregate | ✅ | State machine + invariants |
 | PF-017 | Order item price snapshot | ✅ | `OrderTests.Prices_come_from_the_catalog…` |
 | PF-018 | Order creation use case | ✅ | Server-side pricing, per-tenant order numbers |
-| PF-019 | Order pagination/filtering | ✅ | Allowlisted sort, filters |
+| PF-019 | Order pagination/filtering | ✅ | Allowlisted sort, filters; plans at 100 000 orders in `docs/performance/baseline.md` |
 | PF-020 | Payment aggregate | ✅ | `Payment`, unit tests |
 | PF-021 | PaymentAttempt model | ✅ | One attempt per provider call, triggers |
 | PF-022 | MockPaymentProvider | ✅ | 5 spec tokens + persistent error |
@@ -42,22 +42,22 @@
 | PF-036 | Audit logging | ✅ | `AuditTrail`, `/audit-logs` |
 | PF-037 | React shell and routing | ✅ | Login, tenant switcher, layout, guards |
 | PF-038 | Customer/product screens | ✅ | Data grids, forms, all UI states |
-| PF-039 | Order screens | ✅ | List, create, detail, cancel |
+| PF-039 | Order screens | ✅ | List, create, detail with history (`/orders/{id}/history`), cancel |
 | PF-040 | Payment/refund screens | ✅ | Polling, attempts, refunds, retry |
 | PF-041 | Dashboard and reports | ✅ | Per-currency metrics, charts, tables |
-| PF-042 | Unit tests | ✅ | 91 tests |
-| PF-043 | PostgreSQL integration tests | ✅ | 58 tests (real PostgreSQL) |
-| PF-044 | RabbitMQ integration tests | 🟡 | Real broker: confirm/route/consume, unroutable, DLQ. Missing: retry-queue round trip on a real broker |
-| PF-045 | E2E payment flow tests | ✅ | Playwright journey |
+| PF-042 | Unit tests | ✅ | 91 .NET unit tests + 25 frontend tests |
+| PF-043 | PostgreSQL integration tests | ✅ | 61 tests (real PostgreSQL) |
+| PF-044 | RabbitMQ integration tests | ✅ | Real broker: confirm/route/consume, delayed retry queue round trip, dead-lettering, unroutable messages |
+| PF-045 | E2E payment flow tests | ✅ | Playwright journey, platform admin, axe-core WCAG 2.1 AA scan |
 | PF-046 | Architecture tests | ✅ | 13 rules |
 | PF-047 | GitHub Actions CI | ✅ | `.github/workflows/ci.yml` |
 | PF-048 | OpenTelemetry instrumentation | ✅ | API → worker trace via outbox `traceparent` |
-| PF-049 | Grafana dashboards | 🟡 | API, queue, worker, payment panels. Missing: DB panels (pool, slow query, lock wait), DLQ size, 5xx and unknown-rate panels |
-| PF-050 | k6 baseline load tests | 🟡 | Script ready (`tests/load/k6/baseline.js`); not run yet, no p95/p99/error-rate report |
+| PF-049 | Grafana dashboards | ✅ | API, payments, outbox, queues incl. DLQ depth, worker, DB pool, sessions, lock waits, slow statements; 10 alert rules |
+| PF-050 | k6 baseline load tests | ✅ | `docs/performance/baseline.md`: reads p95 23 ms / p99 47 ms, 0 % errors; SQL plans at volume |
 | PF-051 | Staging deployment | 🟡 | Gated job + runbook; target platform not chosen |
 | PF-052 | Tenant-safe AI reporting tools | ✅ | `AssistantTools` |
 | PF-053 | AI evaluation and prompt safety tests | ✅ | `AssistantSafetyTests`, `docs/ai/assistant.md` |
-| PF-054 | README, ADRs and demo | 🟡 | README, ADRs, demo script done. Missing: seed data script, screenshots, demo video |
+| PF-054 | README, ADRs and demo | ✅ | README with screenshots and demo video, ADRs, `docs/demo.md`, `scripts/seed-demo.mjs` |
 
 ## Beyond the backlog
 
@@ -65,3 +65,5 @@
 |---|---|---|
 | Platform administration (PlatformAdmin / SupportAgent, spec §2.1) | ✅ | `Application/Platform`, `/platform` page, `PlatformAdminTests` |
 | PostgreSQL Row-Level Security for the app role | ✅ | migration `RowLevelSecurity`, `RowLevelSecurityModeTests` |
+| Request time budget (30 s, assistant 120 s → 504) | ✅ | `ApiTimeoutOptions`, `RequestTimeoutTests` |
+| Accessibility fixes (contrast, list semantics, label in name) | ✅ | `AccessibilityTests`, theme `contrastThreshold: 4.5` |
